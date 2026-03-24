@@ -8,7 +8,9 @@ import {
 	NON_EDITOR_APPS,
 	settings,
 	TERMINAL_LINK_BEHAVIORS,
+	TERMINAL_PROXY_MODE_GLOBAL,
 	type TerminalPreset,
+	type TerminalProxySettings,
 } from "@superset/local-db";
 import {
 	AGENT_PRESET_COMMANDS,
@@ -20,6 +22,10 @@ import { app } from "electron";
 import { exitImmediately } from "main/index";
 import { hasCustomRingtone } from "main/lib/custom-ringtones";
 import { localDb } from "main/lib/local-db";
+import {
+	getDetectedInheritedProxy as getDetectedInheritedProxyInternal,
+	getGlobalTerminalProxySettings,
+} from "main/lib/terminal/terminal-proxy";
 import {
 	DEFAULT_AUTO_APPLY_DEFAULT_PRESET,
 	DEFAULT_CONFIRM_ON_QUIT,
@@ -36,6 +42,11 @@ import {
 	DEFAULT_RINGTONE_ID,
 	isBuiltInRingtoneId,
 } from "shared/ringtones";
+import {
+	maskProxyUrlCredentials,
+	normalizeNoProxyCsv,
+	validateTerminalProxyConfig,
+} from "shared/terminal-proxy";
 import {
 	type AgentDefinitionId,
 	applyCustomAgentDefinitionPatch,
@@ -167,6 +178,56 @@ function clearCustomAgentPresetOverride(id: `custom:${string}`) {
 			id,
 		}),
 	);
+}
+
+const terminalProxyConfigInputSchema = z.object({
+	proxyUrl: z.string().trim().min(1),
+	noProxy: z.string().optional(),
+});
+
+const terminalProxySettingsInputSchema = z
+	.object({
+		mode: z.enum(TERMINAL_PROXY_MODE_GLOBAL),
+		manual: terminalProxyConfigInputSchema.optional(),
+	})
+	.superRefine((value, ctx) => {
+		if (value.mode === "manual" && !value.manual) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["manual"],
+				message: "Manual proxy config is required in manual mode",
+			});
+		}
+	});
+
+function sanitizeTerminalProxySettingsInput(
+	input: z.infer<typeof terminalProxySettingsInputSchema>,
+): TerminalProxySettings {
+	if (input.mode !== "manual") {
+		return { mode: input.mode };
+	}
+
+	if (!input.manual) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "Manual proxy config is required in manual mode",
+		});
+	}
+
+	try {
+		const manual = validateTerminalProxyConfig({
+			proxyUrl: input.manual.proxyUrl,
+			noProxy: normalizeNoProxyCsv(input.manual.noProxy),
+		});
+		return { mode: "manual", manual };
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid proxy URL";
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message,
+		});
+	}
 }
 
 function getResolvedAgentPresets() {
@@ -638,6 +699,51 @@ export const createSettingsRouter = () => {
 			const row = getSettings();
 			return row.terminalLinkBehavior ?? DEFAULT_TERMINAL_LINK_BEHAVIOR;
 		}),
+
+		getTerminalProxySettings: publicProcedure.query(() => {
+			return getGlobalTerminalProxySettings();
+		}),
+
+		setTerminalProxySettings: publicProcedure
+			.input(terminalProxySettingsInputSchema)
+			.mutation(({ input }) => {
+				const next = sanitizeTerminalProxySettingsInput(input);
+				localDb
+					.insert(settings)
+					.values({ id: 1, terminalProxySettings: next })
+					.onConflictDoUpdate({
+						target: settings.id,
+						set: { terminalProxySettings: next },
+					})
+					.run();
+
+				return { success: true };
+			}),
+
+		getDetectedInheritedProxy: publicProcedure
+			.input(
+				z
+					.object({
+						refresh: z.boolean().optional(),
+						nonce: z.number().optional(),
+					})
+					.optional(),
+			)
+			.query(async ({ input }) => {
+				const detected = await getDetectedInheritedProxyInternal({
+					forceRefresh: input?.refresh ?? false,
+				});
+				return {
+					hasProxy: detected.hasProxy,
+					httpProxy: detected.httpProxy
+						? maskProxyUrlCredentials(detected.httpProxy)
+						: undefined,
+					httpsProxy: detected.httpsProxy
+						? maskProxyUrlCredentials(detected.httpsProxy)
+						: undefined,
+					noProxy: detected.noProxy,
+				};
+			}),
 
 		setTerminalLinkBehavior: publicProcedure
 			.input(z.object({ behavior: z.enum(TERMINAL_LINK_BEHAVIORS) }))

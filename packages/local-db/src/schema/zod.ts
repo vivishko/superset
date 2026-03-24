@@ -248,3 +248,42 @@ export type BranchPrefixMode = (typeof BRANCH_PREFIX_MODES)[number];
 export const FILE_OPEN_MODES = ["split-pane", "new-tab"] as const;
 
 export type FileOpenMode = (typeof FILE_OPEN_MODES)[number];
+
+export const TERMINAL_PROXY_MODE_GLOBAL = [
+	"auto",
+	"manual",
+	"disabled",
+] as const;
+
+export type TerminalProxyModeGlobal =
+	(typeof TERMINAL_PROXY_MODE_GLOBAL)[number];
+
+export const TERMINAL_PROXY_MODE_PROJECT = [
+	"inherit",
+	"enabled",
+	"disabled",
+] as const;
+
+export type TerminalProxyModeProject =
+	(typeof TERMINAL_PROXY_MODE_PROJECT)[number];
+
+export const terminalProxyConfigSchema = z.object({
+	proxyUrl: z.string(),
+	noProxy: z.string().optional(),
+});
+
+export type TerminalProxyConfig = z.infer<typeof terminalProxyConfigSchema>;
+
+export const terminalProxySettingsSchema = z.object({
+	mode: z.enum(TERMINAL_PROXY_MODE_GLOBAL),
+	manual: terminalProxyConfigSchema.optional(),
+});
+
+export type TerminalProxySettings = z.infer<typeof terminalProxySettingsSchema>;
+
+export const terminalProxyOverrideSchema = z.object({
+	mode: z.enum(TERMINAL_PROXY_MODE_PROJECT),
+	manual: terminalProxyConfigSchema.optional(),
+});
+
+export type TerminalProxyOverride = z.infer<typeof terminalProxyOverrideSchema>;

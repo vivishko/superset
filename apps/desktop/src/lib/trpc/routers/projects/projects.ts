@@ -7,6 +7,8 @@ import {
 	projects,
 	type SelectProject,
 	settings,
+	TERMINAL_PROXY_MODE_PROJECT,
+	type TerminalProxyOverride,
 	workspaceSections,
 	workspaces,
 	worktrees,
@@ -23,6 +25,10 @@ import {
 } from "main/lib/project-icons";
 import { getWorkspaceRuntimeRegistry } from "main/lib/workspace-runtime";
 import { PROJECT_COLOR_VALUES } from "shared/constants/project-colors";
+import {
+	normalizeNoProxyCsv,
+	validateTerminalProxyConfig,
+} from "shared/terminal-proxy";
 import { z } from "zod";
 import { publicProcedure, router } from "../..";
 import { resolveDefaultEditor } from "../external";
@@ -105,6 +111,56 @@ type OpenNewMultiResult =
 	| OpenNewCanceled
 	| { canceled: false; multi: true; results: FolderOutcome[] }
 	| OpenNewError;
+
+const terminalProxyConfigInputSchema = z.object({
+	proxyUrl: z.string().trim().min(1),
+	noProxy: z.string().optional(),
+});
+
+const terminalProxyOverrideInputSchema = z
+	.object({
+		mode: z.enum(TERMINAL_PROXY_MODE_PROJECT),
+		manual: terminalProxyConfigInputSchema.optional(),
+	})
+	.superRefine((value, ctx) => {
+		if (value.mode === "enabled" && !value.manual) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["manual"],
+				message: "Manual proxy config is required when override is enabled",
+			});
+		}
+	});
+
+function sanitizeTerminalProxyOverrideInput(
+	input: z.infer<typeof terminalProxyOverrideInputSchema>,
+): TerminalProxyOverride {
+	if (input.mode !== "enabled") {
+		return { mode: input.mode };
+	}
+
+	if (!input.manual) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message: "Manual proxy config is required when override is enabled",
+		});
+	}
+
+	try {
+		const manual = validateTerminalProxyConfig({
+			proxyUrl: input.manual.proxyUrl,
+			noProxy: normalizeNoProxyCsv(input.manual.noProxy),
+		});
+		return { mode: "enabled", manual };
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid proxy URL";
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message,
+		});
+	}
+}
 
 async function initGitRepo(path: string): Promise<{ defaultBranch: string }> {
 	const git = await getSimpleGitWithShellPath(path);
@@ -1408,6 +1464,9 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 						worktreeBaseDir: z.string().nullable().optional(),
 						hideImage: z.boolean().optional(),
 						defaultApp: z.enum(EXTERNAL_APPS).nullable().optional(),
+						terminalProxyOverride: terminalProxyOverrideInputSchema
+							.nullable()
+							.optional(),
 					}),
 				}),
 			)
@@ -1446,6 +1505,42 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 						...(input.patch.defaultApp !== undefined && {
 							defaultApp: input.patch.defaultApp,
 						}),
+						...(input.patch.terminalProxyOverride !== undefined && {
+							terminalProxyOverride: input.patch.terminalProxyOverride
+								? sanitizeTerminalProxyOverrideInput(
+										input.patch.terminalProxyOverride,
+									)
+								: null,
+						}),
+						lastOpenedAt: Date.now(),
+					})
+					.where(eq(projects.id, input.id))
+					.run();
+
+				return { success: true };
+			}),
+
+		resetTerminalProxyOverride: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.mutation(({ input }) => {
+				const project = localDb
+					.select()
+					.from(projects)
+					.where(eq(projects.id, input.id))
+					.get();
+				if (!project) {
+					throw new TRPCError({
+						code: "NOT_FOUND",
+						message: `Project ${input.id} not found`,
+					});
+				}
+
+				localDb
+					.update(projects)
+					.set({
+						terminalProxyOverride: {
+							mode: "inherit",
+						},
 						lastOpenedAt: Date.now(),
 					})
 					.where(eq(projects.id, input.id))
