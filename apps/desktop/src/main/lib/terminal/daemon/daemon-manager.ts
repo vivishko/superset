@@ -442,23 +442,26 @@ export class DaemonTerminalManager extends EventEmitter {
 				rootPath,
 				themeType,
 			});
+			let effectiveEnv = env;
 			let effectiveProxy: Awaited<
 				ReturnType<typeof resolveEffectiveTerminalProxyForWorkspace>
 			> = {
 				state: "none",
 				source: "none",
 			};
-			try {
-				effectiveProxy = await resolveEffectiveTerminalProxyForWorkspace({
-					workspaceId,
-				});
-			} catch (error) {
-				console.error(
-					"[DaemonTerminalManager] Failed to resolve effective terminal proxy:",
-					error,
-				);
+			if (!daemonHasSession) {
+				try {
+					effectiveProxy = await resolveEffectiveTerminalProxyForWorkspace({
+						workspaceId,
+					});
+				} catch (error) {
+					console.error(
+						"[DaemonTerminalManager] Failed to resolve effective terminal proxy:",
+						error,
+					);
+				}
+				effectiveEnv = applyTerminalProxyToEnv(env, effectiveProxy);
 			}
-			const effectiveEnv = applyTerminalProxyToEnv(env, effectiveProxy);
 
 			if (DEBUG_TERMINAL) {
 				console.log("[DaemonTerminalManager] Calling daemon createOrAttach:", {

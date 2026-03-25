@@ -655,7 +655,7 @@ describe("DaemonTerminalManager kill tracking", () => {
 		await expect(attachPromise).resolves.toMatchObject({ isNew: true });
 	});
 
-	it("still resolves effective proxy when daemon session cache says existing", async () => {
+	it("skips effective proxy resolution when daemon session already exists", async () => {
 		const manager = new DaemonTerminalManager();
 		const paneId = "pane-proxy-existing";
 		const requestId = "req-proxy-existing";
@@ -682,13 +682,10 @@ describe("DaemonTerminalManager kill tracking", () => {
 		});
 
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(resolveEffectiveTerminalProxyForWorkspaceCalls).toEqual(["ws-1"]);
+		expect(resolveEffectiveTerminalProxyForWorkspaceCalls).toEqual([]);
 		expect(mockClient.createOrAttachCalls[0]?.env).toMatchObject({
 			PATH: "/usr/bin",
-			HTTP_PROXY: "http://project-proxy:8080",
-			HTTPS_PROXY: "http://project-proxy:8080",
-			http_proxy: "http://project-proxy:8080",
-			https_proxy: "http://project-proxy:8080",
+			HTTP_PROXY: "http://inherited-proxy:8080",
 		});
 
 		mockClient.resolveCreateOrAttach(requestId, 123);
