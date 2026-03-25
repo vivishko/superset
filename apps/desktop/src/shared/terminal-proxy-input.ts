@@ -1,8 +1,6 @@
-import {
-	TERMINAL_PROXY_MODE_GLOBAL,
-	TERMINAL_PROXY_MODE_PROJECT,
-	type TerminalProxyOverride,
-	type TerminalProxySettings,
+import type {
+	TerminalProxyOverride,
+	TerminalProxySettings,
 } from "@superset/local-db";
 import { z } from "zod";
 import {
@@ -27,35 +25,31 @@ export const terminalProxyConfigInputSchema = z
 		}
 	});
 
-export const terminalProxySettingsInputSchema = z
-	.object({
-		mode: z.enum(TERMINAL_PROXY_MODE_GLOBAL),
-		manual: terminalProxyConfigInputSchema.optional(),
-	})
-	.superRefine((value, ctx) => {
-		if (value.mode === "manual" && !value.manual) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["manual"],
-				message: "Manual proxy config is required in manual mode",
-			});
-		}
-	});
+export const terminalProxySettingsInputSchema = z.discriminatedUnion("mode", [
+	z.object({
+		mode: z.literal("auto"),
+	}),
+	z.object({
+		mode: z.literal("disabled"),
+	}),
+	z.object({
+		mode: z.literal("manual"),
+		manual: terminalProxyConfigInputSchema,
+	}),
+]);
 
-export const terminalProxyOverrideInputSchema = z
-	.object({
-		mode: z.enum(TERMINAL_PROXY_MODE_PROJECT),
-		manual: terminalProxyConfigInputSchema.optional(),
-	})
-	.superRefine((value, ctx) => {
-		if (value.mode === "enabled" && !value.manual) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["manual"],
-				message: "Manual proxy config is required when override is enabled",
-			});
-		}
-	});
+export const terminalProxyOverrideInputSchema = z.discriminatedUnion("mode", [
+	z.object({
+		mode: z.literal("inherit"),
+	}),
+	z.object({
+		mode: z.literal("disabled"),
+	}),
+	z.object({
+		mode: z.literal("enabled"),
+		manual: terminalProxyConfigInputSchema,
+	}),
+]);
 
 export function sanitizeTerminalProxySettingsInput(
 	input: z.infer<typeof terminalProxySettingsInputSchema>,

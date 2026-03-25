@@ -47,6 +47,32 @@ describe("terminal proxy input helpers", () => {
 		});
 	});
 
+	it("ignores stale manual payloads for non-manual global mode", () => {
+		const parsed = terminalProxySettingsInputSchema.parse({
+			mode: "auto",
+			manual: {
+				proxyUrl: "not-a-url",
+			},
+		});
+
+		expect(sanitizeTerminalProxySettingsInput(parsed)).toEqual({
+			mode: "auto",
+		});
+	});
+
+	it("ignores stale manual payloads for non-enabled project mode", () => {
+		const parsed = terminalProxyOverrideInputSchema.parse({
+			mode: "inherit",
+			manual: {
+				proxyUrl: "not-a-url",
+			},
+		});
+
+		expect(sanitizeTerminalProxyOverrideInput(parsed)).toEqual({
+			mode: "inherit",
+		});
+	});
+
 	it("rejects credentials in proxy URL at schema layer", () => {
 		expect(() =>
 			terminalProxySettingsInputSchema.parse({

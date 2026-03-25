@@ -295,6 +295,7 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			state: "manual",
 			source: "global-auto",
 			config: { proxyUrl: "http://inherited-proxy:8080", noProxy: "localhost" },
+			httpProxy: "http://inherited-proxy:8080",
 		});
 	});
 
@@ -312,6 +313,7 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			state: "manual",
 			source: "global-auto",
 			config: { proxyUrl: "http://inherited-http-proxy:8080" },
+			httpProxy: "http://inherited-http-proxy:8080",
 		});
 	});
 
@@ -329,6 +331,31 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			state: "manual",
 			source: "global-auto",
 			config: { proxyUrl: "http://user:pass@inherited-proxy:8080" },
+			httpProxy: "http://user:pass@inherited-proxy:8080",
+			httpsProxy: "http://user:pass@inherited-proxy:8080",
+		});
+	});
+
+	it("inherit + global auto accepts valid HTTP_PROXY when HTTPS_PROXY is invalid", () => {
+		expect(
+			resolveEffectiveTerminalProxyFromSettings({
+				projectOverride: { mode: "inherit" },
+				globalSettings: { mode: "auto" },
+				inheritedProxy: {
+					hasProxy: true,
+					httpProxy: "http://inherited-http-proxy:8080",
+					httpsProxy: "bad-url",
+					noProxy: " localhost , .internal ",
+				},
+			}),
+		).toEqual({
+			state: "manual",
+			source: "global-auto",
+			config: {
+				proxyUrl: "http://inherited-http-proxy:8080",
+				noProxy: "localhost,.internal",
+			},
+			httpProxy: "http://inherited-http-proxy:8080",
 		});
 	});
 
@@ -338,6 +365,23 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 				projectOverride: { mode: "inherit" },
 				globalSettings: { mode: "auto" },
 				inheritedProxy: { hasProxy: false },
+			}),
+		).toEqual({
+			state: "none",
+			source: "none",
+		});
+	});
+
+	it("inherit + global auto resolves to none when both HTTP_PROXY and HTTPS_PROXY are invalid", () => {
+		expect(
+			resolveEffectiveTerminalProxyFromSettings({
+				projectOverride: { mode: "inherit" },
+				globalSettings: { mode: "auto" },
+				inheritedProxy: {
+					hasProxy: true,
+					httpProxy: "not-a-url",
+					httpsProxy: "also-bad",
+				},
 			}),
 		).toEqual({
 			state: "none",

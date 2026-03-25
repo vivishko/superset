@@ -83,12 +83,15 @@ export function TerminalProxySection({
 	const [noProxy, setNoProxy] = useState(getManualFields(normalized).noProxy);
 
 	useEffect(() => {
+		if (!projectId) {
+			return;
+		}
 		const next = normalizeOverride(currentOverride);
 		setMode(next.mode);
 		const manual = getManualFields(next);
 		setProxyUrl(manual.proxyUrl);
 		setNoProxy(manual.noProxy);
-	}, [currentOverride]);
+	}, [currentOverride, projectId]);
 
 	const updateProject = electronTrpc.projects.update.useMutation({
 		onMutate: () => ({ previousMode: mode }),

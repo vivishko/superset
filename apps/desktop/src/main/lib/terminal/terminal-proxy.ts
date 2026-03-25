@@ -111,6 +111,30 @@ export function applyTerminalProxyToEnv(
 		return stripped;
 	}
 
+	if (effectiveProxy.httpProxy || effectiveProxy.httpsProxy) {
+		return {
+			...stripped,
+			...(effectiveProxy.httpProxy
+				? {
+						HTTP_PROXY: effectiveProxy.httpProxy,
+						http_proxy: effectiveProxy.httpProxy,
+					}
+				: {}),
+			...(effectiveProxy.httpsProxy
+				? {
+						HTTPS_PROXY: effectiveProxy.httpsProxy,
+						https_proxy: effectiveProxy.httpsProxy,
+					}
+				: {}),
+			...(effectiveProxy.config.noProxy
+				? {
+						NO_PROXY: effectiveProxy.config.noProxy,
+						no_proxy: effectiveProxy.config.noProxy,
+					}
+				: {}),
+		};
+	}
+
 	return {
 		...stripped,
 		...buildProxyEnvVars(effectiveProxy.config),

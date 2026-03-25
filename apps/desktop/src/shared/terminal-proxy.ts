@@ -206,7 +206,11 @@ export function detectInheritedProxyFromEnv(
 		typeof httpProxy === "string" && httpProxy.trim().length > 0;
 	const hasHttpsProxy =
 		typeof httpsProxy === "string" && httpsProxy.trim().length > 0;
-	const proxyUrl = hasHttpsProxy ? httpsProxy : hasHttpProxy ? httpProxy : undefined;
+	const proxyUrl = hasHttpsProxy
+		? httpsProxy
+		: hasHttpProxy
+			? httpProxy
+			: undefined;
 
 	return {
 		hasProxy: hasHttpProxy || hasHttpsProxy,
@@ -229,6 +233,8 @@ export interface EffectiveTerminalProxy {
 	state: EffectiveTerminalProxyState;
 	source: EffectiveTerminalProxySource;
 	config?: TerminalProxyConfig;
+	httpProxy?: string;
+	httpsProxy?: string;
 }
 
 function toManualConfigOrNull(
@@ -241,6 +247,24 @@ function toManualConfigOrNull(
 	} catch {
 		return null;
 	}
+}
+
+function toValidatedInheritedProxyUrl(
+	proxyUrl: string | undefined,
+	noProxy: string | undefined,
+): string | null {
+	if (typeof proxyUrl !== "string" || proxyUrl.trim().length === 0) {
+		return null;
+	}
+
+	const validated = toManualConfigOrNull(
+		{
+			proxyUrl,
+			...(noProxy ? { noProxy } : {}),
+		},
+		{ allowCredentials: true },
+	);
+	return validated?.proxyUrl ?? null;
 }
 
 export function resolveEffectiveTerminalProxyFromSettings(params: {
@@ -275,39 +299,44 @@ export function resolveEffectiveTerminalProxyFromSettings(params: {
 		return { state: "manual", source: "global-manual", config: globalManual };
 	}
 
-	const inheritedProxyUrl =
-		(typeof params.inheritedProxy.httpsProxy === "string" &&
-		params.inheritedProxy.httpsProxy.trim().length > 0
-			? params.inheritedProxy.httpsProxy
-			: undefined) ??
-		(typeof params.inheritedProxy.httpProxy === "string" &&
-		params.inheritedProxy.httpProxy.trim().length > 0
-			? params.inheritedProxy.httpProxy
-			: undefined) ??
-		(typeof params.inheritedProxy.proxyUrl === "string" &&
-		params.inheritedProxy.proxyUrl.trim().length > 0
-			? params.inheritedProxy.proxyUrl
-			: undefined);
-
-	if (!params.inheritedProxy.hasProxy || !inheritedProxyUrl) {
-		return { state: "none", source: "none" };
-	}
-
-	const inheritedManual = toManualConfigOrNull(
-		{
-			proxyUrl: inheritedProxyUrl,
-			noProxy: params.inheritedProxy.noProxy,
-		},
-		{ allowCredentials: true },
+	const inheritedNoProxy = normalizeNoProxyCsv(params.inheritedProxy.noProxy);
+	const validatedHttpsProxy = toValidatedInheritedProxyUrl(
+		params.inheritedProxy.httpsProxy,
+		inheritedNoProxy,
 	);
-	if (!inheritedManual) {
+	const validatedHttpProxy = toValidatedInheritedProxyUrl(
+		params.inheritedProxy.httpProxy,
+		inheritedNoProxy,
+	);
+	const validatedFallbackProxy = toValidatedInheritedProxyUrl(
+		params.inheritedProxy.proxyUrl,
+		inheritedNoProxy,
+	);
+	const effectiveHttpsProxy =
+		validatedHttpsProxy ??
+		(validatedHttpProxy || !validatedFallbackProxy
+			? null
+			: validatedFallbackProxy);
+	const effectiveHttpProxy =
+		validatedHttpProxy ??
+		(validatedHttpsProxy || !validatedFallbackProxy
+			? null
+			: validatedFallbackProxy);
+	const preferredProxyUrl = effectiveHttpsProxy ?? effectiveHttpProxy;
+
+	if (!params.inheritedProxy.hasProxy || !preferredProxyUrl) {
 		return { state: "none", source: "none" };
 	}
 
 	return {
 		state: "manual",
 		source: "global-auto",
-		config: inheritedManual,
+		config: {
+			proxyUrl: preferredProxyUrl,
+			...(inheritedNoProxy ? { noProxy: inheritedNoProxy } : {}),
+		},
+		...(effectiveHttpProxy ? { httpProxy: effectiveHttpProxy } : {}),
+		...(effectiveHttpsProxy ? { httpsProxy: effectiveHttpsProxy } : {}),
 	};
 }
 
