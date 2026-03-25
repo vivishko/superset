@@ -216,7 +216,7 @@ export function TerminalProxySection({
 							id="project-terminal-proxy-url"
 							value={proxyUrl}
 							onChange={(event) => setProxyUrl(event.target.value)}
-							placeholder="http://user:password@proxy.example.com:8080"
+							placeholder="http://proxy.example.com:8080"
 							disabled={isBusy}
 						/>
 					</div>

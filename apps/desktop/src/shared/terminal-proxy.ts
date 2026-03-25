@@ -277,5 +277,8 @@ export function getTerminalProxyStateLabel(params: {
 	) {
 		return "Using global (inherited)";
 	}
+	if (params.projectMode === "inherit" && params.globalMode === "disabled") {
+		return "Proxy disabled (global setting)";
+	}
 	return "No proxy configured";
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	buildProxyEnvVars,
 	detectInheritedProxyFromEnv,
+	getTerminalProxyStateLabel,
 	maskProxyUrlCredentials,
 	normalizeNoProxyCsv,
 	resolveEffectiveTerminalProxyFromSettings,
@@ -313,5 +314,20 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			state: "none",
 			source: "none",
 		});
+	});
+});
+
+describe("getTerminalProxyStateLabel", () => {
+	it("returns explicit label for inherit + global disabled", () => {
+		expect(
+			getTerminalProxyStateLabel({
+				projectMode: "inherit",
+				globalMode: "disabled",
+				effective: {
+					state: "disabled",
+					source: "global-disabled",
+				},
+			}),
+		).toBe("Proxy disabled (global setting)");
 	});
 });
