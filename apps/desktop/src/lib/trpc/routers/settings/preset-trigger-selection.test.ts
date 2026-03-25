@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { TerminalPreset } from "@superset/local-db";
+import { AGENT_PRESET_COMMANDS } from "@superset/shared/agent-command";
+import type { ResolvedAgentConfig } from "shared/utils/agent-settings";
+import { hydrateAgentBackedPresetCommands } from "./agent-backed-presets";
 import { getPresetsForTriggerField } from "./preset-trigger-selection";
 
 function createPreset(
@@ -71,5 +74,46 @@ describe("getPresetsForTriggerField", () => {
 				"project-a",
 			),
 		).toEqual([]);
+	});
+
+	it("keeps hydrated agent-backed command for auto-apply selection", () => {
+		const presets = [
+			createPreset("codex-auto-apply", {
+				name: "codex",
+				commands: AGENT_PRESET_COMMANDS.codex,
+				applyOnWorkspaceCreated: true,
+			}),
+		];
+		const agentPresets: ResolvedAgentConfig[] = [
+			{
+				id: "codex",
+				source: "builtin",
+				kind: "terminal",
+				label: "Codex",
+				enabled: true,
+				command: "codex --custom-launch-command",
+				promptCommand: "codex --custom-launch-command --",
+				taskPromptTemplate: "{{title}}",
+				overriddenFields: ["command", "promptCommand"],
+			},
+		];
+
+		const hydratedPresets = hydrateAgentBackedPresetCommands({
+			presets,
+			agentPresets,
+		});
+
+		expect(
+			getPresetsForTriggerField(
+				hydratedPresets,
+				"applyOnWorkspaceCreated",
+				null,
+			),
+		).toEqual([
+			expect.objectContaining({
+				id: "codex-auto-apply",
+				commands: ["codex --custom-launch-command"],
+			}),
+		]);
 	});
 });

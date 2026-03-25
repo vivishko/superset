@@ -202,8 +202,12 @@ export function getPresetsForTrigger(
 	field: "applyOnWorkspaceCreated" | "applyOnNewTab",
 	projectId?: string | null,
 ) {
-	return getPresetsForTriggerField(
+	const hydratedPresets = getHydratedTerminalPresets(
 		getNormalizedTerminalPresets(),
+	);
+
+	return getPresetsForTriggerField(
+		hydratedPresets,
 		field,
 		projectId,
 	);
