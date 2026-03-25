@@ -105,14 +105,33 @@ export function maskProxyUrlCredentials(urlValue: string): string {
 	try {
 		const parsed = new URL(urlValue);
 		if (!parsed.username && !parsed.password) {
+			const sanitized = sanitizeMalformedProxyCredentials(urlValue);
+			if (sanitized !== urlValue) {
+				return sanitized;
+			}
 			return parsed.toString();
 		}
 		parsed.username = parsed.username ? "***" : "";
 		parsed.password = parsed.password ? "***" : "";
 		return parsed.toString();
 	} catch {
-		return urlValue;
+		return sanitizeMalformedProxyCredentials(urlValue);
 	}
+}
+
+function sanitizeMalformedProxyCredentials(urlValue: string): string {
+	const userPassRedacted = urlValue.replace(
+		/^([a-zA-Z][a-zA-Z\d+.-]*:\/\/)?([^/\s@:#]+):([^/\s@]+)@/,
+		(_match, scheme = "") => `${scheme}***:***@`,
+	);
+	if (userPassRedacted !== urlValue) {
+		return userPassRedacted;
+	}
+
+	return urlValue.replace(
+		/^([a-zA-Z][a-zA-Z\d+.-]*:\/\/)?([^/\s@]+)@/,
+		(_match, scheme = "") => `${scheme}***@`,
+	);
 }
 
 export function stripProxyEnvVars(
@@ -157,18 +176,21 @@ export interface DetectedInheritedProxy {
 export function detectInheritedProxyFromEnv(
 	env: Record<string, string>,
 ): DetectedInheritedProxy {
-	const httpProxy = env.HTTP_PROXY || env.http_proxy;
-	const httpsProxy = env.HTTPS_PROXY || env.https_proxy;
-	const proxyUrl = httpsProxy || httpProxy;
-	const noProxy = normalizeNoProxyCsv(env.NO_PROXY || env.no_proxy);
-	const hasProxy = typeof proxyUrl === "string" && proxyUrl.trim().length > 0;
+	const httpProxy = env.HTTP_PROXY ?? env.http_proxy;
+	const httpsProxy = env.HTTPS_PROXY ?? env.https_proxy;
+	const noProxy = env.NO_PROXY ?? env.no_proxy;
+	const hasHttpProxy =
+		typeof httpProxy === "string" && httpProxy.trim().length > 0;
+	const hasHttpsProxy =
+		typeof httpsProxy === "string" && httpsProxy.trim().length > 0;
+	const proxyUrl = hasHttpsProxy ? httpsProxy : hasHttpProxy ? httpProxy : undefined;
 
 	return {
-		...(proxyUrl ? { proxyUrl } : {}),
-		...(httpProxy ? { httpProxy } : {}),
-		...(httpsProxy ? { httpsProxy } : {}),
-		...(noProxy ? { noProxy } : {}),
-		hasProxy,
+		hasProxy: hasHttpProxy || hasHttpsProxy,
+		...(proxyUrl !== undefined ? { proxyUrl } : {}),
+		...(httpProxy !== undefined ? { httpProxy } : {}),
+		...(httpsProxy !== undefined ? { httpsProxy } : {}),
+		...(noProxy !== undefined ? { noProxy } : {}),
 	};
 }
 
@@ -230,13 +252,27 @@ export function resolveEffectiveTerminalProxyFromSettings(params: {
 		return { state: "manual", source: "global-manual", config: globalManual };
 	}
 
-	if (!params.inheritedProxy.hasProxy || !params.inheritedProxy.proxyUrl) {
+	const inheritedProxyUrl =
+		(typeof params.inheritedProxy.httpsProxy === "string" &&
+		params.inheritedProxy.httpsProxy.trim().length > 0
+			? params.inheritedProxy.httpsProxy
+			: undefined) ??
+		(typeof params.inheritedProxy.httpProxy === "string" &&
+		params.inheritedProxy.httpProxy.trim().length > 0
+			? params.inheritedProxy.httpProxy
+			: undefined) ??
+		(typeof params.inheritedProxy.proxyUrl === "string" &&
+		params.inheritedProxy.proxyUrl.trim().length > 0
+			? params.inheritedProxy.proxyUrl
+			: undefined);
+
+	if (!params.inheritedProxy.hasProxy || !inheritedProxyUrl) {
 		return { state: "none", source: "none" };
 	}
 
 	const inheritedManual = toManualConfigOrNull(
 		{
-			proxyUrl: params.inheritedProxy.proxyUrl,
+			proxyUrl: inheritedProxyUrl,
 			noProxy: params.inheritedProxy.noProxy,
 		},
 		{ allowCredentials: true },

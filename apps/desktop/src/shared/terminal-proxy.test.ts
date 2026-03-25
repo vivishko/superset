@@ -23,6 +23,15 @@ describe("terminal proxy utilities", () => {
 		).toBe("http://***:***@proxy.example.com:8080/");
 	});
 
+	it("masks malformed proxy credentials when URL parsing fails", () => {
+		expect(maskProxyUrlCredentials("user:pass@proxy.example.com:8080")).toBe(
+			"***:***@proxy.example.com:8080",
+		);
+		expect(maskProxyUrlCredentials("user@proxy.example.com:8080")).toBe(
+			"***@proxy.example.com:8080",
+		);
+	});
+
 	it("builds proxy env vars in upper and lower case", () => {
 		expect(
 			buildProxyEnvVars({
@@ -64,6 +73,22 @@ describe("terminal proxy utilities", () => {
 		).toEqual({
 			noProxy: "localhost",
 			hasProxy: false,
+		});
+	});
+
+	it("preserves distinct HTTP/HTTPS inherited values", () => {
+		expect(
+			detectInheritedProxyFromEnv({
+				HTTP_PROXY: "http://http-proxy:8080",
+				HTTPS_PROXY: "http://https-proxy:8443",
+				NO_PROXY: " localhost , .internal ",
+			}),
+		).toEqual({
+			httpProxy: "http://http-proxy:8080",
+			httpsProxy: "http://https-proxy:8443",
+			proxyUrl: "http://https-proxy:8443",
+			noProxy: " localhost , .internal ",
+			hasProxy: true,
 		});
 	});
 
@@ -251,6 +276,23 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			state: "manual",
 			source: "global-auto",
 			config: { proxyUrl: "http://inherited-proxy:8080", noProxy: "localhost" },
+		});
+	});
+
+	it("inherit + global auto falls back to httpProxy without proxyUrl", () => {
+		expect(
+			resolveEffectiveTerminalProxyFromSettings({
+				projectOverride: { mode: "inherit" },
+				globalSettings: { mode: "auto" },
+				inheritedProxy: {
+					hasProxy: true,
+					httpProxy: "http://inherited-http-proxy:8080",
+				},
+			}),
+		).toEqual({
+			state: "manual",
+			source: "global-auto",
+			config: { proxyUrl: "http://inherited-http-proxy:8080" },
 		});
 	});
 

@@ -109,6 +109,9 @@ export function TerminalProxySection({
 	const resetOverride =
 		electronTrpc.projects.resetTerminalProxyOverride.useMutation({
 			onSuccess: () => {
+				setMode("inherit");
+				setProxyUrl("");
+				setNoProxy("");
 				utils.projects.get.invalidate({ id: projectId });
 			},
 			onError: (error) => {
