@@ -8,7 +8,6 @@ import {
 	NON_EDITOR_APPS,
 	settings,
 	TERMINAL_LINK_BEHAVIORS,
-	TERMINAL_PROXY_MODE_GLOBAL,
 	type TerminalPreset,
 	type TerminalProxySettings,
 } from "@superset/local-db";
@@ -43,12 +42,12 @@ import {
 	isBuiltInRingtoneId,
 } from "shared/ringtones";
 import {
-	hasProxyUrlCredentials,
 	maskProxyUrlCredentials,
-	normalizeNoProxyCsv,
-	PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
-	validateTerminalProxyConfig,
 } from "shared/terminal-proxy";
+import {
+	sanitizeTerminalProxySettingsInput,
+	terminalProxySettingsInputSchema,
+} from "shared/terminal-proxy-input";
 import {
 	type AgentDefinitionId,
 	applyCustomAgentDefinitionPatch,
@@ -181,67 +180,6 @@ function clearCustomAgentPresetOverride(id: `custom:${string}`) {
 		}),
 	);
 }
-
-const terminalProxyConfigInputSchema = z
-	.object({
-		proxyUrl: z.string().trim().min(1),
-		noProxy: z.string().optional(),
-	})
-	.superRefine((value, ctx) => {
-		if (hasProxyUrlCredentials(value.proxyUrl)) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["proxyUrl"],
-				message: PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
-			});
-		}
-	});
-
-const terminalProxySettingsInputSchema = z
-	.object({
-		mode: z.enum(TERMINAL_PROXY_MODE_GLOBAL),
-		manual: terminalProxyConfigInputSchema.optional(),
-	})
-	.superRefine((value, ctx) => {
-		if (value.mode === "manual" && !value.manual) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: ["manual"],
-				message: "Manual proxy config is required in manual mode",
-			});
-		}
-	});
-
-function sanitizeTerminalProxySettingsInput(
-	input: z.infer<typeof terminalProxySettingsInputSchema>,
-): TerminalProxySettings {
-	if (input.mode !== "manual") {
-		return { mode: input.mode };
-	}
-
-	if (!input.manual) {
-		throw new TRPCError({
-			code: "BAD_REQUEST",
-			message: "Manual proxy config is required in manual mode",
-		});
-	}
-
-	try {
-		const manual = validateTerminalProxyConfig({
-			proxyUrl: input.manual.proxyUrl,
-			noProxy: normalizeNoProxyCsv(input.manual.noProxy),
-		});
-		return { mode: "manual", manual };
-	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Invalid proxy URL";
-		throw new TRPCError({
-			code: "BAD_REQUEST",
-			message,
-		});
-	}
-}
-
 function getResolvedAgentPresets() {
 	return resolveAgentConfigs({
 		customDefinitions: readRawAgentCustomDefinitions(),
@@ -719,7 +657,17 @@ export const createSettingsRouter = () => {
 		setTerminalProxySettings: publicProcedure
 			.input(terminalProxySettingsInputSchema)
 			.mutation(({ input }) => {
-				const next = sanitizeTerminalProxySettingsInput(input);
+				let next: TerminalProxySettings;
+				try {
+					next = sanitizeTerminalProxySettingsInput(input);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : "Invalid proxy URL";
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message,
+					});
+				}
 				localDb
 					.insert(settings)
 					.values({ id: 1, terminalProxySettings: next })
