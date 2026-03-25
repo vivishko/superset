@@ -8,9 +8,12 @@ import { Input } from "@superset/ui/input";
 import { Label } from "@superset/ui/label";
 import { RadioGroup, RadioGroupItem } from "@superset/ui/radio-group";
 import { toast } from "@superset/ui/sonner";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { getTerminalProxyStateLabel } from "shared/terminal-proxy";
+import {
+	getTerminalProxyStateLabel,
+	resolveEffectiveTerminalProxyFromSettings,
+} from "shared/terminal-proxy";
 
 interface TerminalProxySectionProps {
 	projectId: string;
@@ -31,31 +34,34 @@ function getManualFields(override: TerminalProxyOverride | null | undefined) {
 }
 
 function getEffectiveStateLabel(params: {
-	projectMode: TerminalProxyModeProject;
+	currentOverride: TerminalProxyOverride | null | undefined;
 	globalSettings?: TerminalProxySettings | null;
-	detectedHasProxy: boolean;
+	detectedProxy?: {
+		hasProxy: boolean;
+		httpProxy?: string;
+		httpsProxy?: string;
+		noProxy?: string;
+	} | null;
 }): string {
-	if (params.projectMode === "enabled") {
-		return "Using project manual proxy";
-	}
-
+	const projectOverride = normalizeOverride(params.currentOverride);
 	const globalMode = params.globalSettings?.mode ?? "auto";
-
-	if (params.projectMode === "inherit" && globalMode === "manual") {
-		return "Using global (manual)";
-	}
-	if (
-		params.projectMode === "inherit" &&
-		globalMode === "auto" &&
-		params.detectedHasProxy
-	) {
-		return "Using global (inherited)";
-	}
+	const effective = resolveEffectiveTerminalProxyFromSettings({
+		projectOverride,
+		globalSettings: params.globalSettings,
+		inheritedProxy: {
+			hasProxy: params.detectedProxy?.hasProxy ?? false,
+			httpProxy: params.detectedProxy?.httpProxy,
+			httpsProxy: params.detectedProxy?.httpsProxy,
+			proxyUrl:
+				params.detectedProxy?.httpsProxy ?? params.detectedProxy?.httpProxy,
+			noProxy: params.detectedProxy?.noProxy,
+		},
+	});
 
 	return getTerminalProxyStateLabel({
-		projectMode: params.projectMode,
+		projectMode: projectOverride.mode,
 		globalMode,
-		effective: { state: "none", source: "none" },
+		effective,
 	});
 }
 
@@ -71,6 +77,7 @@ export function TerminalProxySection({
 
 	const normalized = normalizeOverride(currentOverride);
 	const [mode, setMode] = useState<TerminalProxyModeProject>(normalized.mode);
+	const previousModeRef = useRef<TerminalProxyModeProject>(normalized.mode);
 	const [proxyUrl, setProxyUrl] = useState(
 		getManualFields(normalized).proxyUrl,
 	);
@@ -78,6 +85,7 @@ export function TerminalProxySection({
 
 	useEffect(() => {
 		const next = normalizeOverride(currentOverride);
+		previousModeRef.current = next.mode;
 		setMode(next.mode);
 		const manual = getManualFields(next);
 		setProxyUrl(manual.proxyUrl);
@@ -89,6 +97,8 @@ export function TerminalProxySection({
 			utils.projects.get.invalidate({ id: projectId });
 		},
 		onError: (error) => {
+			setMode(previousModeRef.current);
+			utils.projects.get.invalidate({ id: projectId });
 			toast.error("Failed to save project terminal proxy", {
 				description: error.message,
 			});
@@ -110,14 +120,15 @@ export function TerminalProxySection({
 	const effectiveStateLabel = useMemo(
 		() =>
 			getEffectiveStateLabel({
-				projectMode: mode,
+				currentOverride,
 				globalSettings: globalProxySettings,
-				detectedHasProxy: detectedInheritedProxy?.hasProxy ?? false,
+				detectedProxy: detectedInheritedProxy,
 			}),
-		[mode, globalProxySettings, detectedInheritedProxy?.hasProxy],
+		[currentOverride, globalProxySettings, detectedInheritedProxy],
 	);
 
 	const handleModeChange = (nextMode: TerminalProxyModeProject) => {
+		previousModeRef.current = mode;
 		setMode(nextMode);
 
 		if (nextMode === "enabled") {
