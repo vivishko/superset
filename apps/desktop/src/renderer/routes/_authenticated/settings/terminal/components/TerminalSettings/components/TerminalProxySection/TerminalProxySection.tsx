@@ -191,21 +191,15 @@ export function TerminalProxySection() {
 					<div className="text-xs font-mono space-y-1 opacity-70">
 						<div>
 							HTTP_PROXY=
-							{detectedQuery.data?.httpProxy ||
-								detectedValueFallback ||
-								"No values found"}
+							{detectedQuery.data?.httpProxy || detectedValueFallback}
 						</div>
 						<div>
 							HTTPS_PROXY=
-							{detectedQuery.data?.httpsProxy ||
-								detectedValueFallback ||
-								"No values found"}
+							{detectedQuery.data?.httpsProxy || detectedValueFallback}
 						</div>
 						<div>
 							NO_PROXY=
-							{detectedQuery.data?.noProxy ||
-								detectedValueFallback ||
-								"No values found"}
+							{detectedQuery.data?.noProxy || detectedValueFallback}
 						</div>
 					</div>
 				</div>
