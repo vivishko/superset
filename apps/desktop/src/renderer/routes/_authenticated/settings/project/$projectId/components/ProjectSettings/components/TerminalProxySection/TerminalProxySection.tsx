@@ -8,7 +8,7 @@ import { Input } from "@superset/ui/input";
 import { Label } from "@superset/ui/label";
 import { RadioGroup, RadioGroupItem } from "@superset/ui/radio-group";
 import { toast } from "@superset/ui/sonner";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import {
 	getTerminalProxyStateLabel,
@@ -77,7 +77,6 @@ export function TerminalProxySection({
 
 	const normalized = normalizeOverride(currentOverride);
 	const [mode, setMode] = useState<TerminalProxyModeProject>(normalized.mode);
-	const previousModeRef = useRef<TerminalProxyModeProject>(normalized.mode);
 	const [proxyUrl, setProxyUrl] = useState(
 		getManualFields(normalized).proxyUrl,
 	);
@@ -85,7 +84,6 @@ export function TerminalProxySection({
 
 	useEffect(() => {
 		const next = normalizeOverride(currentOverride);
-		previousModeRef.current = next.mode;
 		setMode(next.mode);
 		const manual = getManualFields(next);
 		setProxyUrl(manual.proxyUrl);
@@ -93,11 +91,14 @@ export function TerminalProxySection({
 	}, [currentOverride]);
 
 	const updateProject = electronTrpc.projects.update.useMutation({
+		onMutate: () => ({ previousMode: mode }),
 		onSuccess: () => {
 			utils.projects.get.invalidate({ id: projectId });
 		},
-		onError: (error) => {
-			setMode(previousModeRef.current);
+		onError: (error, _variables, context) => {
+			if (context?.previousMode) {
+				setMode(context.previousMode);
+			}
 			utils.projects.get.invalidate({ id: projectId });
 			toast.error("Failed to save project terminal proxy", {
 				description: error.message,
@@ -128,7 +129,6 @@ export function TerminalProxySection({
 	);
 
 	const handleModeChange = (nextMode: TerminalProxyModeProject) => {
-		previousModeRef.current = mode;
 		setMode(nextMode);
 
 		if (nextMode === "enabled") {

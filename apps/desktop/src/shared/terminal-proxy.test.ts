@@ -83,6 +83,32 @@ describe("terminal proxy utilities", () => {
 			"Proxy URLs with embedded credentials are not allowed; use secure storage",
 		);
 	});
+
+	it("allows embedded credentials when explicitly validating inherited config", () => {
+		expect(
+			validateTerminalProxyConfig(
+				{
+					proxyUrl: "http://user:pass@proxy.example.com:8080",
+				},
+				{ allowCredentials: true },
+			),
+		).toEqual({
+			proxyUrl: "http://user:pass@proxy.example.com:8080",
+		});
+	});
+
+	it("builds proxy env vars for authenticated inherited proxy URLs", () => {
+		expect(
+			buildProxyEnvVars({
+				proxyUrl: "http://user:pass@proxy.example.com:8080",
+			}),
+		).toEqual({
+			HTTP_PROXY: "http://user:pass@proxy.example.com:8080",
+			HTTPS_PROXY: "http://user:pass@proxy.example.com:8080",
+			http_proxy: "http://user:pass@proxy.example.com:8080",
+			https_proxy: "http://user:pass@proxy.example.com:8080",
+		});
+	});
 });
 
 describe("resolveEffectiveTerminalProxyFromSettings", () => {
@@ -224,6 +250,23 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			state: "manual",
 			source: "global-auto",
 			config: { proxyUrl: "http://inherited-proxy:8080", noProxy: "localhost" },
+		});
+	});
+
+	it("inherit + global auto keeps inherited authenticated proxy URLs", () => {
+		expect(
+			resolveEffectiveTerminalProxyFromSettings({
+				projectOverride: { mode: "inherit" },
+				globalSettings: { mode: "auto" },
+				inheritedProxy: {
+					hasProxy: true,
+					proxyUrl: "http://user:pass@inherited-proxy:8080",
+				},
+			}),
+		).toEqual({
+			state: "manual",
+			source: "global-auto",
+			config: { proxyUrl: "http://user:pass@inherited-proxy:8080" },
 		});
 	});
 

@@ -44,10 +44,6 @@ const proxyUrlSchema = z
 	.string()
 	.trim()
 	.min(1, "Proxy URL is required")
-	.refine(
-		(value) => !hasProxyUrlCredentials(value),
-		PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
-	)
 	.refine((value) => {
 		try {
 			const parsed = new URL(value);
@@ -59,12 +55,22 @@ const proxyUrlSchema = z
 		}
 	}, "Proxy URL must be a valid http(s)/socks URL");
 
+const manualProxyUrlSchema = proxyUrlSchema.refine(
+	(value) => !hasProxyUrlCredentials(value),
+	PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
+);
+
 const noProxySchema = z
 	.string()
 	.optional()
 	.transform((value) => normalizeNoProxyCsv(value));
 
 const terminalProxyConfigInputSchema = z.object({
+	proxyUrl: manualProxyUrlSchema,
+	noProxy: noProxySchema,
+});
+
+const inheritedTerminalProxyConfigInputSchema = z.object({
 	proxyUrl: proxyUrlSchema,
 	noProxy: noProxySchema,
 });
@@ -83,12 +89,12 @@ export function normalizeNoProxyCsv(value?: string | null): string | undefined {
 
 export function validateTerminalProxyConfig(
 	input: TerminalProxyConfig,
+	options?: { allowCredentials?: boolean },
 ): TerminalProxyConfig {
-	if (hasProxyUrlCredentials(input.proxyUrl)) {
-		throw new Error(PROXY_URL_CREDENTIALS_ERROR_MESSAGE);
-	}
-
-	const parsed = terminalProxyConfigInputSchema.parse(input);
+	const schema = options?.allowCredentials
+		? inheritedTerminalProxyConfigInputSchema
+		: terminalProxyConfigInputSchema;
+	const parsed = schema.parse(input);
 	return {
 		proxyUrl: parsed.proxyUrl,
 		...(parsed.noProxy ? { noProxy: parsed.noProxy } : {}),
@@ -122,7 +128,9 @@ export function stripProxyEnvVars(
 export function buildProxyEnvVars(
 	config: TerminalProxyConfig,
 ): Record<string, string> {
-	const validated = validateTerminalProxyConfig(config);
+	const validated = validateTerminalProxyConfig(config, {
+		allowCredentials: true,
+	});
 	const env: Record<string, string> = {
 		HTTP_PROXY: validated.proxyUrl,
 		HTTPS_PROXY: validated.proxyUrl,
@@ -180,10 +188,11 @@ export interface EffectiveTerminalProxy {
 
 function toManualConfigOrNull(
 	config?: TerminalProxyConfig,
+	options?: { allowCredentials?: boolean },
 ): TerminalProxyConfig | null {
 	if (!config) return null;
 	try {
-		return validateTerminalProxyConfig(config);
+		return validateTerminalProxyConfig(config, options);
 	} catch {
 		return null;
 	}
@@ -225,10 +234,13 @@ export function resolveEffectiveTerminalProxyFromSettings(params: {
 		return { state: "none", source: "none" };
 	}
 
-	const inheritedManual = toManualConfigOrNull({
-		proxyUrl: params.inheritedProxy.proxyUrl,
-		noProxy: params.inheritedProxy.noProxy,
-	});
+	const inheritedManual = toManualConfigOrNull(
+		{
+			proxyUrl: params.inheritedProxy.proxyUrl,
+			noProxy: params.inheritedProxy.noProxy,
+		},
+		{ allowCredentials: true },
+	);
 	if (!inheritedManual) {
 		return { state: "none", source: "none" };
 	}

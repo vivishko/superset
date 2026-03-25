@@ -448,17 +448,15 @@ export class DaemonTerminalManager extends EventEmitter {
 				state: "none",
 				source: "none",
 			};
-			if (!daemonHasSession) {
-				try {
-					effectiveProxy = await resolveEffectiveTerminalProxyForWorkspace({
-						workspaceId,
-					});
-				} catch (error) {
-					console.error(
-						"[DaemonTerminalManager] Failed to resolve effective terminal proxy:",
-						error,
-					);
-				}
+			try {
+				effectiveProxy = await resolveEffectiveTerminalProxyForWorkspace({
+					workspaceId,
+				});
+			} catch (error) {
+				console.error(
+					"[DaemonTerminalManager] Failed to resolve effective terminal proxy:",
+					error,
+				);
 			}
 			const effectiveEnv = applyTerminalProxyToEnv(env, effectiveProxy);
 
