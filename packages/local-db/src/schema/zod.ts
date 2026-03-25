@@ -274,16 +274,36 @@ export const terminalProxyConfigSchema = z.object({
 
 export type TerminalProxyConfig = z.infer<typeof terminalProxyConfigSchema>;
 
-export const terminalProxySettingsSchema = z.object({
-	mode: z.enum(TERMINAL_PROXY_MODE_GLOBAL),
-	manual: terminalProxyConfigSchema.optional(),
-});
+export const terminalProxySettingsSchema = z.discriminatedUnion("mode", [
+	z.object({
+		mode: z.literal("manual"),
+		manual: terminalProxyConfigSchema,
+	}),
+	z.object({
+		mode: z.literal("auto"),
+		manual: z.never().optional(),
+	}),
+	z.object({
+		mode: z.literal("disabled"),
+		manual: z.never().optional(),
+	}),
+]);
 
 export type TerminalProxySettings = z.infer<typeof terminalProxySettingsSchema>;
 
-export const terminalProxyOverrideSchema = z.object({
-	mode: z.enum(TERMINAL_PROXY_MODE_PROJECT),
-	manual: terminalProxyConfigSchema.optional(),
-});
+export const terminalProxyOverrideSchema = z.discriminatedUnion("mode", [
+	z.object({
+		mode: z.literal("enabled"),
+		manual: terminalProxyConfigSchema,
+	}),
+	z.object({
+		mode: z.literal("inherit"),
+		manual: z.never().optional(),
+	}),
+	z.object({
+		mode: z.literal("disabled"),
+		manual: z.never().optional(),
+	}),
+]);
 
 export type TerminalProxyOverride = z.infer<typeof terminalProxyOverrideSchema>;
