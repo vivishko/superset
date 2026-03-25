@@ -173,12 +173,35 @@ export interface DetectedInheritedProxy {
 	hasProxy: boolean;
 }
 
+function pickPreferredEnvValue(
+	upperValue: string | undefined,
+	lowerValue: string | undefined,
+): string | undefined {
+	const upperHasValue =
+		typeof upperValue === "string" && upperValue.trim().length > 0;
+	if (upperHasValue) {
+		return upperValue;
+	}
+
+	const lowerHasValue =
+		typeof lowerValue === "string" && lowerValue.trim().length > 0;
+	if (lowerHasValue) {
+		return lowerValue;
+	}
+
+	if (upperValue !== undefined) {
+		return upperValue;
+	}
+
+	return lowerValue;
+}
+
 export function detectInheritedProxyFromEnv(
 	env: Record<string, string>,
 ): DetectedInheritedProxy {
-	const httpProxy = env.HTTP_PROXY ?? env.http_proxy;
-	const httpsProxy = env.HTTPS_PROXY ?? env.https_proxy;
-	const noProxy = env.NO_PROXY ?? env.no_proxy;
+	const httpProxy = pickPreferredEnvValue(env.HTTP_PROXY, env.http_proxy);
+	const httpsProxy = pickPreferredEnvValue(env.HTTPS_PROXY, env.https_proxy);
+	const noProxy = pickPreferredEnvValue(env.NO_PROXY, env.no_proxy);
 	const hasHttpProxy =
 		typeof httpProxy === "string" && httpProxy.trim().length > 0;
 	const hasHttpsProxy =

@@ -92,6 +92,25 @@ describe("terminal proxy utilities", () => {
 		});
 	});
 
+	it("falls back to lower-case inherited proxy keys when upper-case is blank", () => {
+		expect(
+			detectInheritedProxyFromEnv({
+				HTTP_PROXY: "",
+				http_proxy: "http://http-proxy-lower:8080",
+				HTTPS_PROXY: "   ",
+				https_proxy: "http://https-proxy-lower:8443",
+				NO_PROXY: "",
+				no_proxy: "localhost,.internal",
+			}),
+		).toEqual({
+			httpProxy: "http://http-proxy-lower:8080",
+			httpsProxy: "http://https-proxy-lower:8443",
+			proxyUrl: "http://https-proxy-lower:8443",
+			noProxy: "localhost,.internal",
+			hasProxy: true,
+		});
+	});
+
 	it("rejects invalid manual proxy URL during validation", () => {
 		expect(() =>
 			validateTerminalProxyConfig({
