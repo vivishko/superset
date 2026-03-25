@@ -654,4 +654,45 @@ describe("DaemonTerminalManager kill tracking", () => {
 		mockClient.resolveCreateOrAttach(requestId, 123);
 		await expect(attachPromise).resolves.toMatchObject({ isNew: true });
 	});
+
+	it("skips effective proxy resolution for existing daemon sessions", async () => {
+		const manager = new DaemonTerminalManager();
+		const paneId = "pane-proxy-existing";
+		const requestId = "req-proxy-existing";
+		const managerInternals = manager as unknown as {
+			daemonSessionIdsHydrated: boolean;
+			daemonAliveSessionIds: Set<string>;
+		};
+		managerInternals.daemonSessionIdsHydrated = true;
+		managerInternals.daemonAliveSessionIds = new Set([paneId]);
+
+		const attachPromise = manager.createOrAttach({
+			paneId,
+			requestId,
+			tabId: "tab-1",
+			workspaceId: "ws-1",
+			skipColdRestore: true,
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(resolveEffectiveTerminalProxyForWorkspaceCalls).toEqual([]);
+		expect(mockClient.createOrAttachCalls[0]?.env).toMatchObject({
+			PATH: "/usr/bin",
+		});
+		expect(mockClient.createOrAttachCalls[0]?.env).not.toHaveProperty(
+			"HTTP_PROXY",
+		);
+		expect(mockClient.createOrAttachCalls[0]?.env).not.toHaveProperty(
+			"HTTPS_PROXY",
+		);
+		expect(mockClient.createOrAttachCalls[0]?.env).not.toHaveProperty(
+			"http_proxy",
+		);
+		expect(mockClient.createOrAttachCalls[0]?.env).not.toHaveProperty(
+			"https_proxy",
+		);
+
+		mockClient.resolveCreateOrAttach(requestId, 123);
+		await expect(attachPromise).resolves.toMatchObject({ isNew: true });
+	});
 });
