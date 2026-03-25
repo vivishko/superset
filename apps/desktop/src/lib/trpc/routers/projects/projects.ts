@@ -26,7 +26,9 @@ import {
 import { getWorkspaceRuntimeRegistry } from "main/lib/workspace-runtime";
 import { PROJECT_COLOR_VALUES } from "shared/constants/project-colors";
 import {
+	hasProxyUrlCredentials,
 	normalizeNoProxyCsv,
+	PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
 	validateTerminalProxyConfig,
 } from "shared/terminal-proxy";
 import { z } from "zod";
@@ -112,10 +114,20 @@ type OpenNewMultiResult =
 	| { canceled: false; multi: true; results: FolderOutcome[] }
 	| OpenNewError;
 
-const terminalProxyConfigInputSchema = z.object({
-	proxyUrl: z.string().trim().min(1),
-	noProxy: z.string().optional(),
-});
+const terminalProxyConfigInputSchema = z
+	.object({
+		proxyUrl: z.string().trim().min(1),
+		noProxy: z.string().optional(),
+	})
+	.superRefine((value, ctx) => {
+		if (hasProxyUrlCredentials(value.proxyUrl)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["proxyUrl"],
+				message: PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
+			});
+		}
+	});
 
 const terminalProxyOverrideInputSchema = z
 	.object({

@@ -43,8 +43,10 @@ import {
 	isBuiltInRingtoneId,
 } from "shared/ringtones";
 import {
+	hasProxyUrlCredentials,
 	maskProxyUrlCredentials,
 	normalizeNoProxyCsv,
+	PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
 	validateTerminalProxyConfig,
 } from "shared/terminal-proxy";
 import {
@@ -180,10 +182,20 @@ function clearCustomAgentPresetOverride(id: `custom:${string}`) {
 	);
 }
 
-const terminalProxyConfigInputSchema = z.object({
-	proxyUrl: z.string().trim().min(1),
-	noProxy: z.string().optional(),
-});
+const terminalProxyConfigInputSchema = z
+	.object({
+		proxyUrl: z.string().trim().min(1),
+		noProxy: z.string().optional(),
+	})
+	.superRefine((value, ctx) => {
+		if (hasProxyUrlCredentials(value.proxyUrl)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["proxyUrl"],
+				message: PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
+			});
+		}
+	});
 
 const terminalProxySettingsInputSchema = z
 	.object({

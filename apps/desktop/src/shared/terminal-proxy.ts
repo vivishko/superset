@@ -28,10 +28,26 @@ const VALID_PROXY_PROTOCOLS = new Set([
 	"socks5:",
 ]);
 
+export const PROXY_URL_CREDENTIALS_ERROR_MESSAGE =
+	"Proxy URLs with embedded credentials are not allowed; use secure storage";
+
+export function hasProxyUrlCredentials(value: string): boolean {
+	try {
+		const parsed = new URL(value);
+		return parsed.username.length > 0 || parsed.password.length > 0;
+	} catch {
+		return false;
+	}
+}
+
 const proxyUrlSchema = z
 	.string()
 	.trim()
 	.min(1, "Proxy URL is required")
+	.refine(
+		(value) => !hasProxyUrlCredentials(value),
+		PROXY_URL_CREDENTIALS_ERROR_MESSAGE,
+	)
 	.refine((value) => {
 		try {
 			const parsed = new URL(value);
@@ -68,6 +84,10 @@ export function normalizeNoProxyCsv(value?: string | null): string | undefined {
 export function validateTerminalProxyConfig(
 	input: TerminalProxyConfig,
 ): TerminalProxyConfig {
+	if (hasProxyUrlCredentials(input.proxyUrl)) {
+		throw new Error(PROXY_URL_CREDENTIALS_ERROR_MESSAGE);
+	}
+
 	const parsed = terminalProxyConfigInputSchema.parse(input);
 	return {
 		proxyUrl: parsed.proxyUrl,
@@ -149,6 +169,7 @@ export type EffectiveTerminalProxySource =
 	| "project"
 	| "global-manual"
 	| "global-auto"
+	| "global-disabled"
 	| "none";
 
 export interface EffectiveTerminalProxy {
@@ -189,7 +210,7 @@ export function resolveEffectiveTerminalProxyFromSettings(params: {
 	}
 
 	if (globalSettings.mode === "disabled") {
-		return { state: "disabled", source: "none" };
+		return { state: "disabled", source: "global-disabled" };
 	}
 
 	if (globalSettings.mode === "manual") {
@@ -243,9 +264,6 @@ export function getTerminalProxyStateLabel(params: {
 		params.effective.state === "manual"
 	) {
 		return "Using global (inherited)";
-	}
-	if (params.effective.state === "none") {
-		return "No proxy configured";
 	}
 	return "No proxy configured";
 }

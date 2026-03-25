@@ -73,6 +73,16 @@ describe("terminal proxy utilities", () => {
 			}),
 		).toThrow("Proxy URL must be a valid http(s)/socks URL");
 	});
+
+	it("rejects manual proxy URLs with embedded credentials", () => {
+		expect(() =>
+			validateTerminalProxyConfig({
+				proxyUrl: "http://user:pass@proxy.example.com:8080",
+			}),
+		).toThrow(
+			"Proxy URLs with embedded credentials are not allowed; use secure storage",
+		);
+	});
 });
 
 describe("resolveEffectiveTerminalProxyFromSettings", () => {
@@ -158,7 +168,7 @@ describe("resolveEffectiveTerminalProxyFromSettings", () => {
 			}),
 		).toEqual({
 			state: "disabled",
-			source: "none",
+			source: "global-disabled",
 		});
 	});
 
