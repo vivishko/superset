@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
 import { getDefaultWorktreeBaseDir } from "./default-worktree-base-dir";
 
 describe("getDefaultWorktreeBaseDir", () => {
 	test("uses stable ~/.superset/worktrees default base dir", () => {
 		expect(getDefaultWorktreeBaseDir("/Users/tester")).toBe(
-			"/Users/tester/.superset/worktrees",
+			path.join("/Users/tester", ".superset", "worktrees"),
 		);
 	});
 

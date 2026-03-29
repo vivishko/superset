@@ -350,6 +350,10 @@ function CompareBaseBranchPickerInline({
 	const [open, setOpen] = useState(false);
 	const [branchSearch, setBranchSearch] = useState("");
 	const [filterMode, setFilterMode] = useState<"all" | "worktrees">("all");
+	const lastPointerSelectionRef = useRef<{
+		branchName: string;
+		timestamp: number;
+	} | null>(null);
 
 	const filteredBranches = useMemo(() => {
 		if (!branches.length) return [];
@@ -376,6 +380,7 @@ function CompareBaseBranchPickerInline({
 			open={open}
 			onOpenChange={(v) => {
 				setOpen(v);
+				lastPointerSelectionRef.current = null;
 				if (!v) {
 					setBranchSearch("");
 					setFilterMode("all");
@@ -474,8 +479,30 @@ function CompareBaseBranchPickerInline({
 								<CommandItem
 									key={branch.name}
 									value={branch.name}
+									onPointerDown={() => {
+										lastPointerSelectionRef.current = {
+											branchName: branch.name,
+											timestamp: Date.now(),
+										};
+									}}
 									onSelect={() => {
-										onSelectCompareBaseBranch(branch.name);
+										const lastPointerSelection =
+											lastPointerSelectionRef.current;
+										lastPointerSelectionRef.current = null;
+										const wasPointerActivated =
+											lastPointerSelection?.branchName === branch.name &&
+											Date.now() - lastPointerSelection.timestamp < 300;
+
+										if (
+											wasPointerActivated ||
+											(!activeWorkspaceId && !openAction)
+										) {
+											onSelectCompareBaseBranch(branch.name);
+										} else if (activeWorkspaceId) {
+											onOpenActiveWorkspace(activeWorkspaceId);
+										} else if (openAction) {
+											onOpenWorktree(openAction);
+										}
 										setOpen(false);
 									}}
 									className="group h-11 flex items-center justify-between gap-3 px-3"
@@ -1095,18 +1122,38 @@ ${sanitizeText(truncatedBody)}`;
 				return;
 			}
 
+			let launchRequest: AgentLaunchRequest | null = null;
+			try {
+				launchRequest = buildLaunchRequest(trimmedPrompt);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to prepare agent launch",
+				);
+				return;
+			}
+
 			void runAsyncAction(
-				createWorkspace.mutateAsyncWithPendingSetup({
-					projectId,
-					branchName: selectedBranchName,
-					useExistingBranch: true,
-					name:
-						workspaceNameEdited && workspaceName.trim()
-							? workspaceName.trim()
-							: undefined,
-					prompt: trimmedPrompt || undefined,
-					intent: "create_from_existing_branch",
-				}),
+				createWorkspace.mutateAsyncWithPendingSetup(
+					{
+						projectId,
+						branchName: selectedBranchName,
+						useExistingBranch: true,
+						name:
+							workspaceNameEdited && workspaceName.trim()
+								? workspaceName.trim()
+								: undefined,
+						prompt: trimmedPrompt || undefined,
+						intent: "create_from_existing_branch",
+					},
+					{
+						agentLaunchRequest: launchRequest ?? undefined,
+						resolveInitialCommands: runSetupScript
+							? (commands) => commands
+							: () => null,
+					},
+				),
 				{
 					loading: "Creating workspace from existing branch...",
 					success: "Workspace created",
@@ -1124,8 +1171,10 @@ ${sanitizeText(truncatedBody)}`;
 		},
 		[
 			createWorkspace,
+			buildLaunchRequest,
 			projectId,
 			runAsyncAction,
+			runSetupScript,
 			trimmedPrompt,
 			workspaceName,
 			workspaceNameEdited,
