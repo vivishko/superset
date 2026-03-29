@@ -28,6 +28,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@superset/ui/tooltip";
 import { cn } from "@superset/ui/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
+import type { WorkspaceCreateDomainErrorCode } from "lib/trpc/routers/workspaces/procedures/utils/create-domain-errors";
 import { ArrowUpIcon, ExternalLinkIcon, PaperclipIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -73,10 +74,6 @@ import type { OpenableWorktreeAction } from "./utils/resolveOpenableWorktrees";
 import { resolveOpenableWorktrees } from "./utils/resolveOpenableWorktrees";
 
 type WorkspaceCreateAgent = AgentDefinitionId | "none";
-type WorkspaceCreateDomainErrorCode =
-	| "WORKTREE_ALREADY_EXISTS_FOR_BRANCH"
-	| "BRANCH_NOT_FOUND"
-	| "GIT_OPERATION_FAILED";
 
 const AGENT_STORAGE_KEY = "lastSelectedWorkspaceCreateAgent";
 
