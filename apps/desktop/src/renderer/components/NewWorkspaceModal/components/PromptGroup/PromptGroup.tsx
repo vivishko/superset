@@ -73,10 +73,15 @@ import { GitHubIssueLinkCommand } from "./components/GitHubIssueLinkCommand";
 import { LinkedGitHubIssuePill } from "./components/LinkedGitHubIssuePill";
 import { LinkedPRPill } from "./components/LinkedPRPill";
 import { PRLinkCommand } from "./components/PRLinkCommand";
+import { resolveBranchRowState } from "./utils/branchRowState/branchRowState";
 import type { OpenableWorktreeAction } from "./utils/resolveOpenableWorktrees";
 import { resolveOpenableWorktrees } from "./utils/resolveOpenableWorktrees";
 
 type WorkspaceCreateAgent = AgentDefinitionId | "none";
+type WorkspaceCreateDomainErrorCode =
+	| "WORKTREE_ALREADY_EXISTS_FOR_BRANCH"
+	| "BRANCH_NOT_FOUND"
+	| "GIT_OPERATION_FAILED";
 
 const AGENT_STORAGE_KEY = "lastSelectedWorkspaceCreateAgent";
 
@@ -105,6 +110,50 @@ interface PromptGroupProps {
 	onSelectProject: (projectId: string) => void;
 	onImportRepo: () => void;
 	onNewProject: () => void;
+}
+
+function parseWorkspaceCreateDomainError(error: unknown): {
+	code: WorkspaceCreateDomainErrorCode | null;
+	message: string;
+	rawMessage: string;
+} {
+	const fallbackMessage = "Failed to create workspace";
+	const rawMessage = error instanceof Error ? error.message : String(error);
+	const match = /^([A-Z_]+):\s*(.+)$/.exec(rawMessage);
+	if (!match) {
+		return {
+			code: null,
+			message: rawMessage || fallbackMessage,
+			rawMessage,
+		};
+	}
+
+	const [, rawCode, domainMessage] = match;
+	const code = rawCode as WorkspaceCreateDomainErrorCode;
+	const mappedMessageByCode: Record<WorkspaceCreateDomainErrorCode, string> = {
+		WORKTREE_ALREADY_EXISTS_FOR_BRANCH:
+			domainMessage ||
+			"This branch already has a workspace/worktree. Open it instead.",
+		BRANCH_NOT_FOUND:
+			domainMessage ||
+			"The selected branch no longer exists. Refresh branches and try again.",
+		GIT_OPERATION_FAILED:
+			domainMessage || "Git operation failed. Please try again.",
+	};
+
+	if (!(code in mappedMessageByCode)) {
+		return {
+			code: null,
+			message: rawMessage || fallbackMessage,
+			rawMessage,
+		};
+	}
+
+	return {
+		code,
+		message: mappedMessageByCode[code],
+		rawMessage,
+	};
 }
 
 export function PromptGroup(props: PromptGroupProps) {
@@ -284,6 +333,7 @@ function CompareBaseBranchPickerInline({
 	externalWorktreeBranches,
 	modKey,
 	onSelectCompareBaseBranch,
+	onCreateFromExistingBranch,
 	onOpenWorktree,
 	onOpenActiveWorkspace,
 }: {
@@ -298,6 +348,7 @@ function CompareBaseBranchPickerInline({
 	externalWorktreeBranches: Set<string>;
 	modKey: string;
 	onSelectCompareBaseBranch: (branchName: string) => void;
+	onCreateFromExistingBranch: (branchName: string) => void;
 	onOpenWorktree: (action: OpenableWorktreeAction) => void;
 	onOpenActiveWorkspace: (workspaceId: string) => void;
 }) {
@@ -396,7 +447,13 @@ function CompareBaseBranchPickerInline({
 								branch.name,
 							);
 							const isExternal = externalWorktreeBranches.has(branch.name);
+							const branchHasWorktree = worktreeBranches.has(branch.name);
 							const hasExistingWorkspace = !!(activeWorkspaceId || openAction);
+							const { showOpen, showCreate } = resolveBranchRowState({
+								hasActiveWorkspace: !!activeWorkspaceId,
+								hasOpenableWorktree: !!openAction,
+								hasBranchWorktree: branchHasWorktree,
+							});
 
 							// Determine icon based on state - all same color
 							let icon: React.ReactNode;
@@ -471,7 +528,7 @@ function CompareBaseBranchPickerInline({
 
 										{/* Action buttons - show on hover/select */}
 										<span className="hidden group-data-[selected=true]:flex items-center gap-1.5">
-											{hasExistingWorkspace && (
+											{showOpen && (
 												<Button
 													size="sm"
 													variant="ghost"
@@ -491,32 +548,22 @@ function CompareBaseBranchPickerInline({
 													<span className="ml-1 text-[10px] opacity-60">↵</span>
 												</Button>
 											)}
-											<Button
-												size="sm"
-												className="h-7 px-2.5 text-xs font-medium"
-												onClick={(e) => {
-													e.stopPropagation();
-													onSelectCompareBaseBranch(branch.name);
-													setOpen(false);
-												}}
-											>
-												{hasExistingWorkspace ? (
-													<>
-														<PlusIcon className="size-3.5 mr-1" />
-														Create
-														<span className="ml-1 text-[10px] opacity-70">
-															{modKey}↵
-														</span>
-													</>
-												) : (
-													<>
-														Create
-														<span className="ml-1 text-[10px] opacity-70">
-															↵
-														</span>
-													</>
-												)}
-											</Button>
+											{showCreate && (
+												<Button
+													size="sm"
+													className="h-7 px-2.5 text-xs font-medium"
+													onClick={(e) => {
+														e.stopPropagation();
+														onCreateFromExistingBranch(branch.name);
+														setOpen(false);
+													}}
+												>
+													Create
+													<span className="ml-1 text-[10px] opacity-70">
+														{hasExistingWorkspace ? `${modKey}↵` : "↵"}
+													</span>
+												</Button>
+											)}
 										</span>
 									</span>
 								</CommandItem>
@@ -998,6 +1045,7 @@ ${sanitizeText(truncatedBody)}`;
 									)
 								: aiBranchName) || undefined,
 						compareBaseBranch: compareBaseBranch || undefined,
+						intent: "create_new_branch",
 					},
 					{
 						agentLaunchRequest: launchRequest ?? undefined,
@@ -1051,6 +1099,50 @@ ${sanitizeText(truncatedBody)}`;
 	const handlePromptSubmit = useCallback(() => {
 		void handleCreate();
 	}, [handleCreate]);
+
+	const handleCreateFromExistingBranch = useCallback(
+		(selectedBranchName: string) => {
+			if (!projectId) {
+				toast.error("Select a project first");
+				return;
+			}
+
+			void runAsyncAction(
+				createWorkspace.mutateAsyncWithPendingSetup({
+					projectId,
+					branchName: selectedBranchName,
+					useExistingBranch: true,
+					name:
+						workspaceNameEdited && workspaceName.trim()
+							? workspaceName.trim()
+							: undefined,
+					prompt: trimmedPrompt || undefined,
+					intent: "create_from_existing_branch",
+				}),
+				{
+					loading: "Creating workspace from existing branch...",
+					success: "Workspace created",
+					error: (err) => {
+						const parsed = parseWorkspaceCreateDomainError(err);
+						console.warn("[PromptGroup] Create from existing branch failed", {
+							branch: selectedBranchName,
+							code: parsed.code ?? "UNKNOWN",
+							error: parsed.rawMessage,
+						});
+						return parsed.message;
+					},
+				},
+			);
+		},
+		[
+			createWorkspace,
+			projectId,
+			runAsyncAction,
+			trimmedPrompt,
+			workspaceName,
+			workspaceNameEdited,
+		],
+	);
 
 	useEffect(() => {
 		if (!isNewWorkspaceModalOpen) return;
@@ -1397,6 +1489,7 @@ ${sanitizeText(truncatedBody)}`;
 									externalWorktreeBranches={externalWorktreeBranches}
 									modKey={modKey}
 									onSelectCompareBaseBranch={handleCompareBaseBranchSelect}
+									onCreateFromExistingBranch={handleCreateFromExistingBranch}
 									onOpenWorktree={handleOpenWorktree}
 									onOpenActiveWorkspace={handleOpenActiveWorkspace}
 								/>
