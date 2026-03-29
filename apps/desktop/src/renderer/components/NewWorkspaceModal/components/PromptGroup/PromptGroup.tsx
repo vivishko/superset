@@ -28,12 +28,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@superset/ui/tooltip";
 import { cn } from "@superset/ui/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-	ArrowUpIcon,
-	ExternalLinkIcon,
-	PaperclipIcon,
-	PlusIcon,
-} from "lucide-react";
+import { ArrowUpIcon, ExternalLinkIcon, PaperclipIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	GoArrowUpRight,
@@ -480,13 +475,7 @@ function CompareBaseBranchPickerInline({
 									key={branch.name}
 									value={branch.name}
 									onSelect={() => {
-										if (activeWorkspaceId) {
-											onOpenActiveWorkspace(activeWorkspaceId);
-										} else if (openAction) {
-											onOpenWorktree(openAction);
-										} else {
-											onSelectCompareBaseBranch(branch.name);
-										}
+										onSelectCompareBaseBranch(branch.name);
 										setOpen(false);
 									}}
 									className="group h-11 flex items-center justify-between gap-3 px-3"
@@ -521,10 +510,9 @@ function CompareBaseBranchPickerInline({
 										)}
 
 										{/* Show checkmark for selected base branch when not hovering */}
-										{!hasExistingWorkspace &&
-											effectiveCompareBaseBranch === branch.name && (
-												<HiCheck className="size-4 text-primary group-data-[selected=true]:hidden" />
-											)}
+										{effectiveCompareBaseBranch === branch.name && (
+											<HiCheck className="size-4 text-primary group-data-[selected=true]:hidden" />
+										)}
 
 										{/* Action buttons - show on hover/select */}
 										<span className="hidden group-data-[selected=true]:flex items-center gap-1.5">
