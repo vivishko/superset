@@ -1145,33 +1145,34 @@ ${sanitizeText(truncatedBody)}`;
 			}
 
 			const detachedFiles = attachments.takeFiles();
-
-			let convertedFiles: ConvertedFile[] = [];
 			try {
-				convertedFiles = await prepareLaunchFiles(detachedFiles);
-			} catch (err) {
-				toast.error(
-					err instanceof Error ? err.message : "Failed to process attachments",
-				);
-				return;
-			}
+				let convertedFiles: ConvertedFile[] = [];
+				try {
+					convertedFiles = await prepareLaunchFiles(detachedFiles);
+				} catch (err) {
+					toast.error(
+						err instanceof Error
+							? err.message
+							: "Failed to process attachments",
+					);
+					return;
+				}
 
-			let launchRequest: AgentLaunchRequest | null = null;
-			try {
-				launchRequest = buildLaunchRequest(
-					trimmedPrompt,
-					convertedFiles.length > 0 ? convertedFiles : undefined,
-				);
-			} catch (error) {
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to prepare agent launch",
-				);
-				return;
-			}
+				let launchRequest: AgentLaunchRequest | null = null;
+				try {
+					launchRequest = buildLaunchRequest(
+						trimmedPrompt,
+						convertedFiles.length > 0 ? convertedFiles : undefined,
+					);
+				} catch (error) {
+					toast.error(
+						error instanceof Error
+							? error.message
+							: "Failed to prepare agent launch",
+					);
+					return;
+				}
 
-			try {
 				void runAsyncAction(
 					createWorkspace.mutateAsyncWithPendingSetup(
 						{
