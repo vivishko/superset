@@ -406,7 +406,29 @@ function CompareBaseBranchPickerInline({
 				align="start"
 				onWheel={(event) => event.stopPropagation()}
 			>
-				<Command shouldFilter={false}>
+				<Command
+					shouldFilter={false}
+					onKeyDownCapture={(event) => {
+						if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") {
+							return;
+						}
+
+						const selectedItem = event.currentTarget.querySelector<HTMLElement>(
+							'[data-selected="true"][data-branch-name]',
+						);
+						const selectedBranchName = selectedItem?.dataset.branchName;
+						const canCreateFromBranch =
+							selectedItem?.dataset.canCreate === "true";
+						if (!selectedBranchName || !canCreateFromBranch) {
+							return;
+						}
+
+						event.preventDefault();
+						event.stopPropagation();
+						onCreateFromExistingBranch(selectedBranchName);
+						setOpen(false);
+					}}
+				>
 					<div className="flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 mx-2 mt-2">
 						{(["all", "worktrees"] as const).map((value) => {
 							const count =
@@ -445,7 +467,6 @@ function CompareBaseBranchPickerInline({
 							);
 							const isExternal = externalWorktreeBranches.has(branch.name);
 							const branchHasWorktree = worktreeBranches.has(branch.name);
-							const hasExistingWorkspace = !!(activeWorkspaceId || openAction);
 							const { showOpen, showCreate } = resolveBranchRowState({
 								hasActiveWorkspace: !!activeWorkspaceId,
 								hasOpenableWorktree: !!openAction,
@@ -476,6 +497,8 @@ function CompareBaseBranchPickerInline({
 								<CommandItem
 									key={branch.name}
 									value={branch.name}
+									data-branch-name={branch.name}
+									data-can-create={showCreate ? "true" : "false"}
 									onPointerDown={() => {
 										lastPointerSelectionRef.current = {
 											branchName: branch.name,
@@ -572,7 +595,7 @@ function CompareBaseBranchPickerInline({
 												>
 													Create
 													<span className="ml-1 text-[10px] opacity-70">
-														{hasExistingWorkspace ? `${modKey}↵` : "↵"}
+														{modKey}↵
 													</span>
 												</Button>
 											)}
@@ -785,6 +808,133 @@ function PromptGroupInner({
 		[],
 	);
 
+	const prepareLaunchFiles = useCallback(
+		async (
+			detachedFiles: Array<{
+				url: string;
+				mediaType: string;
+				filename?: string;
+			}>,
+		): Promise<ConvertedFile[]> => {
+			let convertedFiles: ConvertedFile[] = [];
+			if (detachedFiles.length > 0) {
+				convertedFiles = await Promise.all(
+					detachedFiles.map(async (file) => ({
+						data: await convertBlobUrlToDataUrl(file.url),
+						mediaType: file.mediaType,
+						filename: file.filename,
+					})),
+				);
+			}
+
+			const githubIssues = linkedIssues.filter(
+				(issue): issue is typeof issue & { number: number } =>
+					issue.source === "github" && typeof issue.number === "number",
+			);
+			if (githubIssues.length === 0 || !projectId) {
+				return convertedFiles;
+			}
+
+			try {
+				const fetchWithTimeout = <T,>(
+					promise: Promise<T>,
+					timeoutMs: number,
+				): Promise<T> => {
+					return Promise.race([
+						promise,
+						new Promise<T>((_, reject) =>
+							setTimeout(() => reject(new Error("Request timeout")), timeoutMs),
+						),
+					]);
+				};
+
+				const issueContents = await Promise.all(
+					githubIssues.map(async (issue) => {
+						try {
+							const content = await fetchWithTimeout(
+								utils.client.projects.getIssueContent.query({
+									projectId,
+									issueNumber: issue.number,
+								}),
+								10000,
+							);
+
+							const sanitizeText = (str: string) =>
+								str.replace(/[&<>"']/g, (char) => {
+									const entities: Record<string, string> = {
+										"&": "&amp;",
+										"<": "&lt;",
+										">": "&gt;",
+										'"': "&quot;",
+										"'": "&#39;",
+									};
+									return entities[char] || char;
+								});
+
+							const sanitizeUrl = (url: string) => {
+								try {
+									const parsed = new URL(url);
+									if (!["http:", "https:"].includes(parsed.protocol)) {
+										return "#invalid-url";
+									}
+									return url;
+								} catch {
+									return "#invalid-url";
+								}
+							};
+
+							const MAX_BODY_LENGTH = 50000;
+							const truncatedBody =
+								content.body.length > MAX_BODY_LENGTH
+									? `${content.body.slice(0, MAX_BODY_LENGTH)}\n\n[... content truncated due to length ...]`
+									: content.body;
+
+							const markdown = `# GitHub Issue #${content.number}: ${sanitizeText(content.title)}
+
+**URL:** ${sanitizeUrl(content.url)}
+**State:** ${content.state}
+**Author:** ${sanitizeText(content.author || "Unknown")}
+**Created:** ${content.createdAt ? new Date(content.createdAt).toLocaleString() : "Unknown"}
+**Updated:** ${content.updatedAt ? new Date(content.updatedAt).toLocaleString() : "Unknown"}
+
+---
+
+${sanitizeText(truncatedBody)}`;
+
+							const base64 = btoa(
+								encodeURIComponent(markdown).replace(
+									/%([0-9A-F]{2})/g,
+									(_, p1) => String.fromCharCode(Number.parseInt(p1, 16)),
+								),
+							);
+
+							return {
+								data: `data:text/markdown;base64,${base64}`,
+								mediaType: "text/markdown",
+								filename: `github-issue-${content.number}.md`,
+							};
+						} catch (err) {
+							console.warn(
+								`Failed to fetch GitHub issue #${issue.number}:`,
+								err,
+							);
+							return null;
+						}
+					}),
+				);
+
+				const validIssueFiles = issueContents.filter(
+					(file) => file !== null,
+				) as ConvertedFile[];
+				return [...convertedFiles, ...validIssueFiles];
+			} catch (err) {
+				console.warn("Failed to fetch GitHub issue contents:", err);
+				return convertedFiles;
+			}
+		},
+		[convertBlobUrlToDataUrl, linkedIssues, projectId, utils],
+	);
+
 	const handleCreate = useCallback(async () => {
 		if (!projectId) {
 			toast.error("Select a project first");
@@ -865,137 +1015,14 @@ function PromptGroupInner({
 			}
 
 			let convertedFiles: ConvertedFile[] = [];
-			if (detachedFiles.length > 0) {
-				try {
-					convertedFiles = await Promise.all(
-						detachedFiles.map(async (file) => ({
-							data: await convertBlobUrlToDataUrl(file.url),
-							mediaType: file.mediaType,
-							filename: file.filename,
-						})),
-					);
-				} catch (err) {
-					clearPendingWorkspace(pendingWorkspaceId);
-					toast.error(
-						err instanceof Error
-							? err.message
-							: "Failed to process attachments",
-					);
-					return;
-				}
-			}
-
-			// Fetch and attach GitHub issue content
-			const githubIssues = linkedIssues.filter(
-				(issue): issue is typeof issue & { number: number } =>
-					issue.source === "github" && typeof issue.number === "number",
-			);
-			if (githubIssues.length > 0 && projectId) {
-				try {
-					// Helper to add timeout to promises
-					const fetchWithTimeout = <T,>(
-						promise: Promise<T>,
-						timeoutMs: number,
-					): Promise<T> => {
-						return Promise.race([
-							promise,
-							new Promise<T>((_, reject) =>
-								setTimeout(
-									() => reject(new Error("Request timeout")),
-									timeoutMs,
-								),
-							),
-						]);
-					};
-
-					const issueContents = await Promise.all(
-						githubIssues.map(async (issue) => {
-							try {
-								const content = await fetchWithTimeout(
-									utils.client.projects.getIssueContent.query({
-										projectId,
-										issueNumber: issue.number,
-									}),
-									10000, // 10 second timeout per issue
-								);
-
-								// Sanitize user-generated content to prevent injection
-								const sanitizeText = (str: string) =>
-									str.replace(/[&<>"']/g, (char) => {
-										const entities: Record<string, string> = {
-											"&": "&amp;",
-											"<": "&lt;",
-											">": "&gt;",
-											'"': "&quot;",
-											"'": "&#39;",
-										};
-										return entities[char] || char;
-									});
-
-								const sanitizeUrl = (url: string) => {
-									try {
-										const parsed = new URL(url);
-										// Only allow http/https protocols
-										if (!["http:", "https:"].includes(parsed.protocol)) {
-											return "#invalid-url";
-										}
-										return url;
-									} catch {
-										return "#invalid-url";
-									}
-								};
-
-								// Limit body size to prevent memory issues
-								const MAX_BODY_LENGTH = 50000; // 50KB
-								const truncatedBody =
-									content.body.length > MAX_BODY_LENGTH
-										? `${content.body.slice(0, MAX_BODY_LENGTH)}\n\n[... content truncated due to length ...]`
-										: content.body;
-
-								const markdown = `# GitHub Issue #${content.number}: ${sanitizeText(content.title)}
-
-**URL:** ${sanitizeUrl(content.url)}
-**State:** ${content.state}
-**Author:** ${sanitizeText(content.author || "Unknown")}
-**Created:** ${content.createdAt ? new Date(content.createdAt).toLocaleString() : "Unknown"}
-**Updated:** ${content.updatedAt ? new Date(content.updatedAt).toLocaleString() : "Unknown"}
-
----
-
-${sanitizeText(truncatedBody)}`;
-
-								// Convert markdown to base64 data URL
-								const base64 = btoa(
-									encodeURIComponent(markdown).replace(
-										/%([0-9A-F]{2})/g,
-										(_, p1) => String.fromCharCode(Number.parseInt(p1, 16)),
-									),
-								);
-
-								return {
-									data: `data:text/markdown;base64,${base64}`,
-									mediaType: "text/markdown",
-									filename: `github-issue-${content.number}.md`,
-								};
-							} catch (err) {
-								console.warn(
-									`Failed to fetch GitHub issue #${issue.number}:`,
-									err,
-								);
-								return null;
-							}
-						}),
-					);
-
-					// Add successfully fetched issues to convertedFiles
-					const validIssueFiles = issueContents.filter(
-						(file) => file !== null,
-					) as ConvertedFile[];
-					convertedFiles = [...convertedFiles, ...validIssueFiles];
-				} catch (err) {
-					console.warn("Failed to fetch GitHub issue contents:", err);
-					// Don't block workspace creation if issue fetching fails
-				}
+			try {
+				convertedFiles = await prepareLaunchFiles(detachedFiles);
+			} catch (err) {
+				clearPendingWorkspace(pendingWorkspaceId);
+				toast.error(
+					err instanceof Error ? err.message : "Failed to process attachments",
+				);
+				return;
 			}
 
 			let launchRequest: AgentLaunchRequest | null = null;
@@ -1091,19 +1118,17 @@ ${sanitizeText(truncatedBody)}`;
 		buildLaunchRequest,
 		closeAndResetDraft,
 		clearPendingWorkspace,
-		convertBlobUrlToDataUrl,
 		createFromPr,
 		createWorkspace,
 		generateBranchNameMutation,
-		linkedIssues,
 		linkedPR,
+		prepareLaunchFiles,
 		projectId,
 		runAsyncAction,
 		runSetupScript,
 		setPendingWorkspace,
 		setPendingWorkspaceStatus,
 		trimmedPrompt,
-		utils,
 		workspaceName,
 		workspaceNameEdited,
 	]);
@@ -1113,15 +1138,30 @@ ${sanitizeText(truncatedBody)}`;
 	}, [handleCreate]);
 
 	const handleCreateFromExistingBranch = useCallback(
-		(selectedBranchName: string) => {
+		async (selectedBranchName: string) => {
 			if (!projectId) {
 				toast.error("Select a project first");
 				return;
 			}
 
+			const detachedFiles = attachments.takeFiles();
+
+			let convertedFiles: ConvertedFile[] = [];
+			try {
+				convertedFiles = await prepareLaunchFiles(detachedFiles);
+			} catch (err) {
+				toast.error(
+					err instanceof Error ? err.message : "Failed to process attachments",
+				);
+				return;
+			}
+
 			let launchRequest: AgentLaunchRequest | null = null;
 			try {
-				launchRequest = buildLaunchRequest(trimmedPrompt);
+				launchRequest = buildLaunchRequest(
+					trimmedPrompt,
+					convertedFiles.length > 0 ? convertedFiles : undefined,
+				);
 			} catch (error) {
 				toast.error(
 					error instanceof Error
@@ -1131,44 +1171,56 @@ ${sanitizeText(truncatedBody)}`;
 				return;
 			}
 
-			void runAsyncAction(
-				createWorkspace.mutateAsyncWithPendingSetup(
+			try {
+				void runAsyncAction(
+					createWorkspace.mutateAsyncWithPendingSetup(
+						{
+							projectId,
+							branchName: selectedBranchName,
+							useExistingBranch: true,
+							name:
+								workspaceNameEdited && workspaceName.trim()
+									? workspaceName.trim()
+									: undefined,
+							prompt: trimmedPrompt || undefined,
+							compareBaseBranch: compareBaseBranch || undefined,
+							intent: "create_from_existing_branch",
+						},
+						{
+							agentLaunchRequest: launchRequest ?? undefined,
+							resolveInitialCommands: runSetupScript
+								? (commands) => commands
+								: () => null,
+						},
+					),
 					{
-						projectId,
-						branchName: selectedBranchName,
-						useExistingBranch: true,
-						name:
-							workspaceNameEdited && workspaceName.trim()
-								? workspaceName.trim()
-								: undefined,
-						prompt: trimmedPrompt || undefined,
-						intent: "create_from_existing_branch",
+						loading: "Creating workspace from existing branch...",
+						success: "Workspace created",
+						error: (err) => {
+							const parsed = parseWorkspaceCreateDomainError(err);
+							console.warn("[PromptGroup] Create from existing branch failed", {
+								branch: selectedBranchName,
+								code: parsed.code ?? "UNKNOWN",
+								error: parsed.rawMessage,
+							});
+							return parsed.message;
+						},
 					},
-					{
-						agentLaunchRequest: launchRequest ?? undefined,
-						resolveInitialCommands: runSetupScript
-							? (commands) => commands
-							: () => null,
-					},
-				),
-				{
-					loading: "Creating workspace from existing branch...",
-					success: "Workspace created",
-					error: (err) => {
-						const parsed = parseWorkspaceCreateDomainError(err);
-						console.warn("[PromptGroup] Create from existing branch failed", {
-							branch: selectedBranchName,
-							code: parsed.code ?? "UNKNOWN",
-							error: parsed.rawMessage,
-						});
-						return parsed.message;
-					},
-				},
-			);
+				);
+			} finally {
+				for (const file of detachedFiles) {
+					if (file.url?.startsWith("blob:")) {
+						URL.revokeObjectURL(file.url);
+					}
+				}
+			}
 		},
 		[
+			attachments,
+			compareBaseBranch,
 			createWorkspace,
 			buildLaunchRequest,
+			prepareLaunchFiles,
 			projectId,
 			runAsyncAction,
 			runSetupScript,
